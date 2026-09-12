@@ -4,7 +4,7 @@ SafariConnect is a Nairobi bus and matatu booking platform. Every booking since 
 
 This is the whole project in PostgreSQL: 290 raw rows loaded as they arrived, cleaned column by column, loaded into a typed production table, analysed with CTEs and window functions, and exposed as views for a Power BI dashboard.
 
-I wrote the whole project up as an article: **[SafariConnect: From a Broken Excel Export to a Board-Ready Analysis in PostgreSQL](https://dev.to/leahkivuti/safariconnect-from-a-broken-excel-export-to-a-board-ready-analysis-in-postgresql-2ma2)** on dev.to.
+The write-up is on dev.to: **SafariConnect: From a Broken Excel Export to a Board-Ready Analysis in PostgreSQL** (link added once published — see [dev.to/leahkivuti](https://dev.to/leahkivuti)).
 
 ## What's in this repository
 
@@ -15,6 +15,10 @@ I wrote the whole project up as an article: **[SafariConnect: From a Broken Exce
 `sql/03_analysis_six_questions.sql` answers the six business questions in twenty queries, each with its key result in a comment. CTEs, `RANK`, `LAG`, running totals with `SUM() OVER`, percentage-of-total, `NTILE` quartiles, `CASE WHEN` pivots.
 
 `sql/04_views_and_indexes.sql` creates the five views the dashboard connects to and seven indexes, all safe to re-run.
+
+`sql/05_load_with_reject_table.sql` is the same load done a safer way, added after a reader asked how the load handles failures. Instead of deleting bad rows and quietly emptying bad values, it sorts every problem into one of two kinds. A row that cannot be loaded at all — a duplicate booking id, seats that are not a positive number — goes to a `rejected_bookings` table with the reason and its whole original row kept as JSON. A single bad value in an otherwise real booking — a trip rating of 6, a phone number Excel destroyed — is repaired or emptied, and the change is counted in a `cleaning_log` table. The run order becomes 01 → 05 → 03 → 04. It produces a `bookings` table identical to the one `02` produces, row for row; the difference is that afterwards you can answer what was dropped and why.
+
+Every check in `05` is done on text with a regular expression rather than on a cast, because a cast inside a validation check raises an error on the first bad value and stops the whole load — the thing the reject table exists to prevent.
 
 `data/` holds the raw export as CSV (what PostgreSQL imports) and as an Excel workbook with every column kept as text (so Excel can't damage the phone numbers again).
 
@@ -32,6 +36,7 @@ I wrote the whole project up as an article: **[SafariConnect: From a Broken Exce
 | Total revenue | KES 227,810 |
 | Seats sold | 452 |
 | Revenue lost to cancellations and no-shows | KES 32,150 (12.4% of what was earned) |
+| Rows refused by the reject-table loader | 2, both with a written reason |
 
 ## What the analysis found
 
@@ -53,7 +58,7 @@ The phone numbers were damaged before the data reached the database: the CSV had
 
 ## How to run it
 
-Open pgAdmin's Query Tool on any database and run the four SQL files in order. Each ends with a check whose expected result is in the comments; `02` should finish with 253 / 227810 / 452. The first file drops and recreates a schema called `safari_connect`, so rename it at the top of each file if you already have one.
+Open pgAdmin's Query Tool on any database and run the SQL files in order — either 01 → 02 → 03 → 04, or 01 → 05 → 03 → 04 to get the reject table and cleaning log as well. Each ends with a check whose expected result is in the comments; `02` should finish with 253 / 227810 / 452. The first file drops and recreates a schema called `safari_connect`, so rename it at the top of each file if you already have one.
 
 To open the dashboard, install Power BI Desktop, open `dashboard/SafariConnect_Performance.pbix`, and point the PostgreSQL connection at your own server (Get Data → PostgreSQL → server `localhost`, schema `safari_connect`, select the `v_` views).
 
